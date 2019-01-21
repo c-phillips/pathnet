@@ -28,6 +28,13 @@ class NetTrainer:
 	def train(self, x_train, y_train, x_test, y_test, batch=64, epochs=20):
 		"""Trains the network for a number of epochs
 		"""
+		self.nn.X.set_shape([None, *x_train.shape[1:]])
+		self.nn.x_input.set_shape([None, *x_train.shape[1:]])
+		self.nn.Y.set_shape([None, *y_train.shape[1:]])
+		self.nn.y_input.set_shape([None, *y_train.shape[1:]])
+		
+		self.nn.build_network()
+
 		print("Initializing training operations...")
 		loss_op = self.loss(self.nn.y_input, self.nn.yhat)
 		opt_op = self.optimizer.minimize(loss_op)

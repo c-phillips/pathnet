@@ -17,9 +17,11 @@ BATCH_SIZE = 32
 (x_train, y_train), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
 
 # Flatten and normalize the input data because we are using linear input layers
-flatten = lambda d: d.reshape(d.shape[0], d.shape[1]*d.shape[2])
-x_train = flatten(x_train)/255
-x_test = flatten(x_test)/255
+# flatten = lambda d: d.reshape(d.shape[0], d.shape[1]*d.shape[2])
+# x_train = flatten(x_train)/255
+# x_test = flatten(x_test)/255
+x_train = x_train/255
+x_test = x_test/255
 
 # Reformat the output data with onehot encoding
 num_classes = max(y_train)+1
@@ -33,8 +35,11 @@ output_dims = y_train[0].shape
 
 structure = [
 	{
+		'name': 'IN_Flatten',
+		'layer_type': 'flatten'
+	},
+	{
 		'name': 'Linear1',
-		'input_size':list(data_dims),
 		'num_nodes':128,
 	},
 	{

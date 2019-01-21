@@ -20,15 +20,15 @@ class NeuralNetwork:
 	def __init__(self, network_structure=None):
 		print("Initializing Network...")
 		self.layers = []
+		self.structure = network_structure
 
-		self.input_size = network_structure[0]['input_size']
 		self.output_size = network_structure[-1]['num_nodes']
 
-		self.X = tf.placeholder(tf.float32, shape=[None, *self.input_size], name="Input_Data")
-		self.Y = tf.placeholder(tf.float32, shape=[None, self.output_size], name="Data_Labels")
+		self.X = tf.placeholder(tf.float32, name="Input_Data")
+		self.Y = tf.placeholder(tf.float32, name="Data_Labels")
 
-		self.x_input = tf.placeholder(tf.float32, shape=[None, *self.input_size], name="network_input")
-		self.y_input = tf.placeholder(tf.float32, shape=[None, self.output_size], name="network_output")
+		self.x_input = tf.placeholder(tf.float32, name="network_input")
+		self.y_input = tf.placeholder(tf.float32, name="network_output")
 
 		with tf.name_scope("Dataset"):
 			self.batch_size = tf.placeholder(tf.int64)
@@ -44,11 +44,11 @@ class NeuralNetwork:
 			self.data_iterator = self.dataset.make_initializable_iterator()
 			self.x_data, self.y_data  = self.data_iterator.get_next()
 
-
+	def build_network(self):
 		print("Building Network structure...")
-		if network_structure is not None:
+		if self.structure is not None:
 			with tf.name_scope("Network") as self.name_scope:
-				for layer in network_structure:
+				for layer in self.structure:
 					self.add_layer(**layer)
 		else:
 			print("Must provide the NeuralNetwork with a structure")
@@ -58,10 +58,10 @@ class NeuralNetwork:
 		"""This function creates and stores layers
 		"""
 		if len(self.layers) > 0:
-			input_size = self.layers[-1].num_nodes
+			input_size = self.layers[-1].y_layer.get_shape().as_list()
 			x_layer = self.layers[-1].y_layer
 		else:
-			input_size = self.input_size
+			input_size = self.x_input.get_shape().as_list()
 			x_layer = self.x_input
 
 		if name is not None:
@@ -69,8 +69,8 @@ class NeuralNetwork:
 		else:
 			layer_name = layer_type+str(len(layers))
 
-								 #    net_scope,       name,       x,             shape,          layer_type="linear",   activation=tf.nn.relu)
-		self.layers.append(NNLayer(self.name_scope, layer_name, x_layer, [num_nodes, input_size], layer_type=layer_type, activation=activation))
+								 #    net_scope,       name,       x,             shape,           layer_type="linear",   activation=tf.nn.relu)
+		self.layers.append(NNLayer(self.name_scope, layer_name, x_layer, [num_nodes, *input_size], layer_type=layer_type, activation=activation))
 		self.yhat = self.layers[-1].y_layer
 		
 		return self.layers[-1]
