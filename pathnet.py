@@ -62,12 +62,12 @@ class Pathnet:
     def __init__(self, config, N):
         # first, we will instantiate the networks for each pathnet layer
         self.network_structure = []
-        for pn_layer in config:
+        for layer_name, layer_structure in config.items():
             new_layer = []
-            for i in range(pn_layer['num_modules']):
+            for i in range(layer_structure['num_modules']):
                 # if it is the first module of the layer, we set the x_input to None for
                 # assignment later; otherwise, we set it to the input of the first module
-                new_layer.append(NeuralNetwork(pn_layer['module_structure'],
+                new_layer.append(NeuralNetwork(layer_structure['module_structure'],
                                                x_in = None if i == 0 else new_layer[0].x_input))
             self.network_structure.append(new_layer)
 
@@ -75,7 +75,7 @@ class Pathnet:
         self.M = len(self.network_structure[0])
         self.N = N
 
-        self.Pmat = tf.placeholder(type=tf.float32, size=[self.L, self.M], name="PathMatrix")
+        self.Pmat = tf.placeholder(tf.float32, [self.L, self.M], name="PathMatrix")
 
         # this just makes it simpler to reference the first module since it is really the
         # arbiter of the training data. It holds the primary dataset information and feeds
@@ -85,7 +85,8 @@ class Pathnet:
         # then, each layer is followed by a summation over all layer modules
         self.sums = []
         for i, pn_layer in enumerate(self.network_structure):
-            s = tf.get_variable("sum_layer")    # hopefully tensorflow makes this work
+            s = tf.get_variable("sum_layer",
+                shape=sums[-1].get_shape().as_list() if i > 0 else self.fm.yhat.get_shape().as_list())    # hopefully tensorflow makes this work
             for j in range(len(pn_layer)):
                 # if this is the first module, not in the first layer, we assign
                 # the x_input as the output of the last summation module
@@ -141,26 +142,26 @@ class Pathnet:
                 }
             )
             num_batches = int(x_train.shape[0]/batch)
-            current_batch = 0
+            # current_batch = 0
             loss = acc = 0
             while True:
                 try:
                     x_batch, y_batch = sess.run([self.fm.x_data, self.fm.y_data])
                     sess.run(opt_op, feed_dict={self.fm.x_input:x_batch, self.fm.y_input:y_batch})
 
-                    current_batch += 1
+                    # current_batch += 1
                     # num_blocks = int(current_batch/num_batches*bar_width)
                     # bar_string = u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7: "
 
-                    if current_batch%10 == 0:
-                        l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.fm.x_input:x_batch, self.fm.y_input:y_batch})
-                        loss += l
-                        acc += a
-                        sys.stdout.write(bar_string+f"{loss/current_batch*10:.4f}, {acc/current_batch*10:.4f}")
-                    else:
-                        sys.stdout.write(bar_string)
+                    # if current_batch%10 == 0:
+                    #     l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.fm.x_input:x_batch, self.fm.y_input:y_batch})
+                    #     loss += l
+                    #     acc += a
+                    #     sys.stdout.write(bar_string+f"{loss/current_batch*10:.4f}, {acc/current_batch*10:.4f}")
+                    # else:
+                        # sys.stdout.write(bar_string)
 
-                    sys.stdout.flush()
+                    # sys.stdout.flush()
 
                 except tf.errors.OutOfRangeError:
                     break

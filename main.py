@@ -4,6 +4,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import random
+
 import numpy as np
 import tensorflow as tf
 
@@ -58,27 +60,51 @@ net = NeuralNetwork(structure)
 trainer = NetTrainer(net, loss_function=tf.losses.softmax_cross_entropy, optimizer=tf.train.AdadeltaOptimizer(learning_rate=0.5))# optimizer=tf.train.GradientDescentOptimizer(learning_rate=0.01))#
 trainer.train(x_train, y_train, x_test, y_test, batch=BATCH_SIZE, epochs=EPOCHS)
 """
+L = 3
+M = int(6)
+N = 3
+T = 50
+
 config = {
 	"Layer1":{
-		"num_modules":6,
-		"module_structure":{
-			"name":"linear",
-			"num_noes":50
-		}
+		"num_modules":M,
+		"module_structure":[
+			{
+				"name":"linear",
+				"num_nodes":50
+			}
+		]
 	},
 	"Layer2":{
-		"num_modules":6,
-		"module_structure":{
-			"name":"linear",
-			"num_noes":50
-		}
+		"num_modules":M,
+		"module_structure":[
+			{
+				"name":"linear",
+				"num_nodes":50
+			}
+		]
 	},
 	"Layer3":{
-		"num_modules":6,
-		"module_structure":{
-			"name":"linear",
-			"num_noes":50
-		}
+		"num_modules":M,
+		"module_structure":[
+			{
+				"name":"linear",
+				"num_nodes":50
+			}
+		]
 	}
 }
-PN = Pathnet(config, 3)
+sess = tf.InteractiveSession()
+PN = Pathnet(config, N)
+
+mat = []
+for i in range(L):
+	indices = random.sample(range(M), N)
+	row = [0]*M
+	for ind in indices:
+		row[ind] = 1
+	mat.append(row)
+
+path = np.array(mat)
+
+PN.train(sess, x_train, y_train, tf.nn.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.05), path, T, 32)
