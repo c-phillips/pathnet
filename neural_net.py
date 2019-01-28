@@ -17,7 +17,7 @@ class NeuralNetwork:
 	the weights given an input
 	"""
 
-	def __init__(self, network_structure=None):
+	def __init__(self, network_structure=None, x_in=None):
 		print("Initializing Network...")
 		self.layers = []
 		self.structure = network_structure
@@ -27,7 +27,10 @@ class NeuralNetwork:
 		self.X = tf.placeholder(tf.float32, name="Input_Data")
 		self.Y = tf.placeholder(tf.float32, name="Data_Labels")
 
-		self.x_input = tf.placeholder(tf.float32, name="network_input")
+		if x_in is None:
+			self.x_input = tf.placeholder(tf.float32, name="network_input")
+		else:
+			self.x_input = x_in
 		self.y_input = tf.placeholder(tf.float32, name="network_output")
 
 		with tf.name_scope("Dataset"):
