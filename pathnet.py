@@ -77,8 +77,10 @@ class Pathnet:
 
         self.Pmat = tf.placeholder(type=tf.float32, size=[self.L, self.M], name="PathMatrix")
 
-        # this just makes it simpler to reference the first module for input
-        self.x_input = self.network_structure[0][0].x_input
+        # this just makes it simpler to reference the first module since it is really the
+        # arbiter of the training data. It holds the primary dataset information and feeds
+        # not only the network, but the batched data to the optimizer
+        self.fm = self.network_structure[0][0]
 
         # then, each layer is followed by a summation over all layer modules
         self.sums = []
@@ -93,9 +95,8 @@ class Pathnet:
             self.sums.append(s)
 
         self.output = self.sums[-1] # the main network output is the last sum layer
-        self.y_input = tf.placeholder(tf.float32, name="pathnet_output")
     
-    def train(self, sess, x_train, y_train, loss_func, opt_func, path, T):
+    def train(self, sess, x_train, y_train, loss_func, opt_func, path, T, batch):
         """This method is used to train the individual pathnet agent.
         A session reference must be passed, as well as the path to train over.
 
@@ -107,6 +108,7 @@ class Pathnet:
             opt_func:   the tensorflow optimization function to use
             path:       the module selection path for directed training
             T:          the number of epochs over which to optimize
+            batch:      the batch size to train with
 
         The path must be an LxM matrix correspoding to the modules to train.
         The function will then feed the appropriate values through to the Pmat
@@ -123,41 +125,42 @@ class Pathnet:
                         train_vars.append(layer.weights)
                         train_vars.append(layer.biases)
         
-        loss_op = loss_func(self.y_input, self.output)
+        loss_op = loss_func(self.fm.y_input, self.output)
         opt_op = opt_func.minimize(loss_op, var_list=train_vars)
+        accuracy, accuracy_op = tf.metrics.accuracy(labels=self.fm.y_input, predictions=self.ouput)
 
         for epoch_num in range(epochs):
-				print(f"\nEpoch {epoch_num+1}/{epochs}:")
-				# Initialize data for training
-				sess.run(self.nn.data_iterator.initializer,
-					feed_dict={
-						self.x_input:x_train,
-						self.nn.Y:y_train,
-						self.nn.batch_size:batch,
-						self.nn.shuffle_size:x_train.shape[0]
-					}
-				)
-				num_batches = int(x_train.shape[0]/batch)
-				current_batch = 0
-				loss = acc = 0
-				while True:
-					try:
-						x_batch, y_batch = sess.run([self.nn.x_data, self.nn.y_data])
-						sess.run(opt_op, feed_dict={self.nn.x_input:x_batch, self.nn.y_input:y_batch})
+            print(f"\nEpoch {epoch_num+1}/{epochs}:")
+            # Initialize data for training
+            sess.run(self.fm.data_iterator.initializer,
+                feed_dict={
+                    self.fm.X:x_train,
+                    self.fm.Y:y_train,
+                    self.fm.batch_size:batch,
+                    self.fm.shuffle_size:x_train.shape[0]
+                }
+            )
+            num_batches = int(x_train.shape[0]/batch)
+            current_batch = 0
+            loss = acc = 0
+            while True:
+                try:
+                    x_batch, y_batch = sess.run([self.fm.x_data, self.fm.y_data])
+                    sess.run(opt_op, feed_dict={self.fm.x_input:x_batch, self.fm.y_input:y_batch})
 
-						current_batch += 1
-						# num_blocks = int(current_batch/num_batches*bar_width)
-						# bar_string = u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7: "
+                    current_batch += 1
+                    # num_blocks = int(current_batch/num_batches*bar_width)
+                    # bar_string = u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7: "
 
-						if current_batch%10 == 0:
-							l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.nn.x_input:x_batch, self.nn.y_input:y_batch})
-							loss += l
-							acc += a
-							sys.stdout.write(bar_string+f"{loss/current_batch*10:.4f}, {acc/current_batch*10:.4f}")
-						else:
-							sys.stdout.write(bar_string)
+                    if current_batch%10 == 0:
+                        l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.fm.x_input:x_batch, self.fm.y_input:y_batch})
+                        loss += l
+                        acc += a
+                        sys.stdout.write(bar_string+f"{loss/current_batch*10:.4f}, {acc/current_batch*10:.4f}")
+                    else:
+                        sys.stdout.write(bar_string)
 
-						sys.stdout.flush()
+                    sys.stdout.flush()
 
-					except tf.errors.OutOfRangeError:
-						break
+                except tf.errors.OutOfRangeError:
+                    break

@@ -9,6 +9,7 @@ import tensorflow as tf
 
 from neural_net import NeuralNetwork
 from nn_trainer import NetTrainer
+from pathnet import Pathnet
 
 EPOCHS = 50
 BATCH_SIZE = 32
@@ -32,7 +33,7 @@ y_test = onehot_num(y_test, num_classes)
 # Get the shape of our data to construct tensors
 data_dims = x_train[0].shape
 output_dims = y_train[0].shape
-
+""" Example for training a single network
 structure = [
 	{
 		'name': 'IN_Flatten',
@@ -56,3 +57,28 @@ structure = [
 net = NeuralNetwork(structure)
 trainer = NetTrainer(net, loss_function=tf.losses.softmax_cross_entropy, optimizer=tf.train.AdadeltaOptimizer(learning_rate=0.5))# optimizer=tf.train.GradientDescentOptimizer(learning_rate=0.01))#
 trainer.train(x_train, y_train, x_test, y_test, batch=BATCH_SIZE, epochs=EPOCHS)
+"""
+config = {
+	"Layer1":{
+		"num_modules":6,
+		"module_structure":{
+			"name":"linear",
+			"num_noes":50
+		}
+	},
+	"Layer2":{
+		"num_modules":6,
+		"module_structure":{
+			"name":"linear",
+			"num_noes":50
+		}
+	},
+	"Layer3":{
+		"num_modules":6,
+		"module_structure":{
+			"name":"linear",
+			"num_noes":50
+		}
+	}
+}
+PN = Pathnet(config, 3)
