@@ -67,7 +67,7 @@ class NeuralNetwork:
 		if name is not None:
 			layer_name = name
 		else:
-			layer_name = layer_type+str(len(layers))
+			layer_name = layer_type+str(len(self.layers))
 
 								 #    net_scope,       name,       x,             shape,           layer_type="linear",   activation=tf.nn.relu)
 		self.layers.append(NNLayer(self.name_scope, layer_name, x_layer, [num_nodes, *input_size], layer_type=layer_type, activation=activation))
