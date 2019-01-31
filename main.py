@@ -66,7 +66,8 @@ N = 3
 T = 50
 
 config = {
-	"Layer1":{
+	"datashape": data_dims,
+	"L1":{
 		"num_modules":M,
 		"module_structure":[
 			{
@@ -75,7 +76,7 @@ config = {
 			}
 		]
 	},
-	"Layer2":{
+	"L2":{
 		"num_modules":M,
 		"module_structure":[
 			{
@@ -84,7 +85,7 @@ config = {
 			}
 		]
 	},
-	"Layer3":{
+	"L3":{
 		"num_modules":M,
 		"module_structure":[
 			{
@@ -94,7 +95,7 @@ config = {
 		]
 	}
 }
-sess = tf.InteractiveSession()
+# sess = tf.InteractiveSession()
 PN = Pathnet(config, N)
 
 mat = []
@@ -107,4 +108,5 @@ for i in range(L):
 
 path = np.array(mat)
 
-PN.train(sess, x_train, y_train, tf.nn.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.05), path, T, 32)
+sess = tf.InteractiveSession()
+PN.train(sess, x_train, y_train, tf.losses.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.05), path, T, 32)

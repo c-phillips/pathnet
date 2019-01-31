@@ -24,7 +24,7 @@ class NNLayer:
 		self.activation = activation
 
 		with tf.name_scope(net_scope) as self.net_scope:
-			with tf.name_scope(self.name) as self.scope:
+			with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE) as self.scope:
 				if layer_type == "linear":
 					self.weights = tf.get_variable(f"W_{self.name}", initializer=tf.truncated_normal([*self.input_size[1:], self.num_nodes], mean=0.0, stddev=0.02))
 					self.biases = tf.get_variable(f"b_{self.name}", initializer=tf.truncated_normal([self.num_nodes], mean=0.0, stddev=0.02))
