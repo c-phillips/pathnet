@@ -13,16 +13,13 @@ from neural_net import NeuralNetwork
 from nn_trainer import NetTrainer
 from pathnet import Pathnet
 
-EPOCHS = 50
-BATCH_SIZE = 32
-
 # Load the training data
 (x_train, y_train), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
 
 # Flatten and normalize the input data because we are using linear input layers
-# flatten = lambda d: d.reshape(d.shape[0], d.shape[1]*d.shape[2])
-# x_train = flatten(x_train)/255
-# x_test = flatten(x_test)/255
+# flatten = lambda d: d.reshape(d.shape[0], d.shape[1]*d.shape[2], 1)
+# x_train = x_train.flatten()/255
+# x_test = x_test.flatten()/255
 x_train = x_train/255
 x_test = x_test/255
 
@@ -63,10 +60,21 @@ trainer.train(x_train, y_train, x_test, y_test, batch=BATCH_SIZE, epochs=EPOCHS)
 L = 3
 M = int(6)
 N = 3
-T = 50
+T = 1
+BATCH = 32
 
 config = {
 	"datashape": data_dims,
+	"FL":{
+		"num_modules":1,
+		"conditioning": True,
+		"module_structure":[
+			{
+				"name":"flatten",
+				"layer_type":"flatten"
+			}
+		]
+	},
 	"L1":{
 		"num_modules":M,
 		"module_structure":[
@@ -90,13 +98,15 @@ config = {
 		"module_structure":[
 			{
 				"name":"linear",
-				"num_nodes":50
+				"num_nodes":10
 			}
 		]
 	}
 }
 # sess = tf.InteractiveSession()
+sess = tf.InteractiveSession()
 PN = Pathnet(config, N)
+writer = tf.summary.FileWriter("./logs/", sess.graph)
 
 mat = []
 for i in range(L):
@@ -108,5 +118,5 @@ for i in range(L):
 
 path = np.array(mat)
 
-sess = tf.InteractiveSession()
-PN.train(sess, x_train, y_train, tf.losses.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.05), path, T, 32)
+PN.train(sess, x_train, y_train, tf.losses.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.05), path, T, BATCH)
+writer.close()

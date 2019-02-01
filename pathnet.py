@@ -60,62 +60,83 @@ class Pathnet:
     moment.
     """
     def __init__(self, config, N):
-        # first, we will instantiate the networks for each pathnet layer
-        self.network_structure = []
+        with tf.variable_scope("PathNet", reuse=False) as self.var_scope:
+            # first, we will instantiate the networks for each pathnet layer
+            self.network_structure = []
 
-        data_dims = list(config.pop("datashape", None))
-        if data_dims is None:
-            raise ValueError("You must provide a datashape parameter to configure PathNet!")
-        data_dims.insert(0, None)
-        print(data_dims)
+            data_dims = list(config.pop("datashape", None))
+            if data_dims is None:
+                raise ValueError("You must provide a datashape parameter to configure PathNet!")
+            data_dims.insert(0, None)
+            print(data_dims)
 
-        for layer_name, layer_structure in config.items():
-            new_layer = []
-            for i in range(layer_structure['num_modules']):
-                # if it is the first module of the layer, we set the x_input to None for
-                # assignment later; otherwise, we set it to the input of the first module
-                temp_struct = copy.deepcopy(layer_structure['module_structure'])
-                for j in range(len(temp_struct)):
-                    if 'name' in temp_struct[j]:
-                        temp_struct[j]['name'] += "_{}_{}".format(layer_name, i+1)
-                        print(temp_struct[j]['name'])
-                new_layer.append(NeuralNetwork(temp_struct,
-                                               x_in = None if i == 0 else new_layer[0].x_input,
-                                               x_in_shape = data_dims if i == 0 else None,
-                                               first_input = True if len(self.network_structure) == 0 else False))
-                del temp_struct
-                tf.get_variable_scope().reuse_variables()
-            self.network_structure.append(new_layer)
+            self.M = 0
+            self.L = 0
+            self.N = N
 
-        self.L = len(self.network_structure)
-        self.M = len(self.network_structure[0])
-        self.N = N
-
-        self.Pmat = tf.placeholder(tf.float32, [self.L, self.M], name="PathMatrix")
-
-        # this just makes it simpler to reference the first module since it is really the
-        # arbiter of the training data. It holds the primary dataset information and feeds
-        # not only the network, but the batched data to the optimizer
-        self.network_structure[0][0].build_network()
-        self.fm = self.network_structure[0][0]
-
-        # then, each layer is followed by a summation over all layer modules
-        with tf.variable_scope("PathNet", reuse=tf.AUTO_REUSE) as self.var_scope:
+            self.first_layer = None
             self.sums = []
-            for i, pn_layer in enumerate(self.network_structure):
-                self.sums.append(tf.get_variable("sum_layer_{}".format(i),
-                                shape=self.sums[-1].get_shape().as_list() if i > 0 else self.fm.yhat.get_shape().as_list(),    # hopefully tensorflow makes this work
-                                initializer=tf.zeros_initializer))
-                for j in range(len(pn_layer)):
-                    pn_layer[j].build_network()
-                    # if this is the first module, not in the first layer, we assign
-                    # the x_input as the output of the last summation module
-                    if j == 0 and i > 0:
-                        pn_layer[j].x_input = self.sums[-1]
-                    self.sums[-1] = self.sums[-1]+self.Pmat[i,j]*pn_layer[j].yhat
-                # self.sums.append(s)
+            for l, (layer_name, layer_structure) in enumerate(config.items()):
+                new_layer = []
+                
+                if 'conditioning' not in layer_structure:
+                    print(layer_name)
+                    if self.M == 0:
+                        self.M = layer_structure['num_modules']
+                        self.first_layer = l
+                        self.L = len(config.items())-l
+                        print("FIRST LAYER: {}".format(layer_name))
+
+                        self.Pmat = tf.placeholder(tf.float32, [self.L, self.M], name="PathMatrix")
+                        print(self.Pmat.get_shape().as_list())
+
+                    # with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+                    sum_shape = self.sums[-1].get_shape().as_list() if l > self.first_layer else self.network_structure[self.first_layer-1][0].yhat.get_shape().as_list()
+                    s = tf.get_variable("sum_{}".format(layer_name), shape=(), initializer=tf.zeros_initializer())
+                    self.sums.append(s)
+                else:
+                    print("CONDITIONING: {}".format(layer_name))
+
+                for i in range(layer_structure['num_modules']):
+                    # if it is the first module of the layer, we set the x_input to None for
+                    # assignment later; otherwise, we set it to the input of the first module
+                    temp_struct = copy.deepcopy(layer_structure['module_structure'])
+                    for j in range(len(temp_struct)):
+                        if 'name' in temp_struct[j]:
+                            temp_struct[j]['name'] += "_{}_{}".format(layer_name, i+1)
+                            # print(temp_struct[j]['name'])
+
+                    # We need to select the proper input for this network provided the other
+                    # networks/layers have been created. 
+                    input_ref = None
+                    if i == 0 and self.first_layer is not None and l > self.first_layer:
+                        input_ref = self.sums[-2]
+                    elif i == 0 and self.first_layer is not None and l == self.first_layer:
+                        input_ref = self.network_structure[self.first_layer-1][0].yhat
+                    elif i == 0 and self.first_layer is None and l > 0:
+                        input_ref = self.network_structure[l-1].yhat
+                    elif i > 0 and self.first_layer is not None:
+                        input_ref = new_layer[0].x_input
+
+                    new_layer.append(
+                        NeuralNetwork(temp_struct,
+                                    x_in = input_ref,
+                                    x_in_shape = data_dims if l == 0 else self.network_structure[l-1][0].yhat.get_shape().as_list(),
+                                    make_dataset = True if l == 0 else False,
+                                    name = "Network_"+layer_name+"_M"+str(i)
+                        )
+                    )
+
+                    del temp_struct
+                    new_layer[-1].build_network()
+                    if self.first_layer is not None:
+                        self.sums[-1] = self.sums[-1]+self.Pmat[l-self.first_layer,i]*new_layer[-1].yhat
+
+                    tf.get_variable_scope().reuse_variables()
+                self.network_structure.append(new_layer)
 
             self.output = self.sums[-1] # the main network output is the last sum layer
+            self.data_layer = self.network_structure[0][0] # this makes it easy to access our datapipeline
     
     def train(self, sess, x_train, y_train, loss_func, opt_func, path, T, batch):
         """This method is used to train the individual pathnet agent.
@@ -141,15 +162,15 @@ class Pathnet:
             for l in range(path.shape[0]):
                 for m in range(path.shape[1]):
                     if path[l,m] != 0:
-                        for layer in self.network_structure[l][m].layers:
+                        for layer in self.network_structure[l+self.first_layer][m].layers:
                             # naturally this will need to change if the structure of the layer
                             # does not use weights and biases
                             train_vars.append(layer.weights)
                             train_vars.append(layer.biases)
             
-            loss_op = loss_func(self.fm.y_input, self.output)
+            loss_op = loss_func(self.data_layer.y_input, self.output)
             opt_op = opt_func.minimize(loss_op, var_list=train_vars)
-            accuracy, accuracy_op = tf.metrics.accuracy(labels=self.fm.y_input, predictions=self.output)
+            accuracy, accuracy_op = tf.metrics.accuracy(labels=self.data_layer.y_input, predictions=self.output)
 
             sess.run(tf.global_variables_initializer())
             sess.run(tf.local_variables_initializer())
@@ -157,12 +178,12 @@ class Pathnet:
             for epoch_num in range(T):
                 print(f"\nEpoch {epoch_num+1}/{T}:")
                 # Initialize data for training
-                sess.run(self.fm.data_iterator.initializer,
+                sess.run(self.data_layer.data_iterator.initializer,
                     feed_dict={
-                        self.fm.X:x_train,
-                        self.fm.Y:y_train,
-                        self.fm.batch_size:batch,
-                        self.fm.shuffle_size:x_train.shape[0]
+                        self.data_layer.X:x_train,
+                        self.data_layer.Y:y_train,
+                        self.data_layer.batch_size:batch,
+                        self.data_layer.shuffle_size:x_train.shape[0]
                     }
                 )
                 num_batches = int(x_train.shape[0]/batch)
@@ -170,8 +191,8 @@ class Pathnet:
                 loss = acc = 0
                 while True:
                     try:
-                        x_batch, y_batch = sess.run([self.fm.x_data, self.fm.y_data])
-                        sess.run(opt_op, feed_dict={self.fm.x_input:x_batch, self.fm.y_input:y_batch, self.Pmat:path})
+                        x_batch, y_batch = sess.run([self.data_layer.x_data, self.data_layer.y_data])
+                        sess.run(opt_op, feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
 
                         # current_batch += 1
                         # num_blocks = int(current_batch/num_batches*bar_width)

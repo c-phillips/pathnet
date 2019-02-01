@@ -17,42 +17,42 @@ class NeuralNetwork:
 	the weights given an input
 	"""
 
-	def __init__(self, network_structure=None, x_in=None, x_in_shape=None, first_input=False):
+	def __init__(self, network_structure=None, x_in=None, x_in_shape=None, make_dataset=False, name=None):
 		print("Initializing Network...")
 		self.layers = []
 		self.structure = network_structure
 
-		self.output_size = network_structure[-1]['num_nodes']
+		# self.output_size = network_structure[-1]['num_nodes']
+		with tf.name_scope(name if name is not None else "Network") as self.name_scope:
+			self.X = tf.placeholder(tf.float32, name="Input_Data")
+			self.Y = tf.placeholder(tf.float32, name="Data_Labels")
 
-		self.X = tf.placeholder(tf.float32, name="Input_Data")
-		self.Y = tf.placeholder(tf.float32, name="Data_Labels")
+			if x_in is None:
+				assert x_in_shape != None, "You must provide an input shape to construct the network"
+				self.x_input = tf.placeholder(tf.float32, shape=x_in_shape, name="network_input")
 
-		if x_in is None:
-			assert x_in_shape != None, "You must provide an input shape to construct the network"
-			self.x_input = tf.placeholder(tf.float32, shape=x_in_shape, name="network_input")
+				if make_dataset:
+					with tf.name_scope("Dataset"):
+						self.batch_size = tf.placeholder(tf.int64)
+						self.shuffle_size = tf.placeholder(tf.int64)
+						self.epochs = tf.placeholder(tf.int64)
 
-			if first_input:
-				with tf.name_scope("Dataset"):
-					self.batch_size = tf.placeholder(tf.int64)
-					self.shuffle_size = tf.placeholder(tf.int64)
-					self.epochs = tf.placeholder(tf.int64)
-
-					print("Creating dataset pipeline...")
-					self.dataset = tf.data.Dataset.from_tensor_slices((self.X,self.Y))
-					self.dataset = self.dataset.shuffle(self.shuffle_size)
-					self.dataset = self.dataset.batch(self.batch_size)
-					# self.dataset = self.dataset.repeat(self.epochs)
-					# self.dataset = self.dataset.prefetch(1)
-					self.data_iterator = self.dataset.make_initializable_iterator()
-					self.x_data, self.y_data  = self.data_iterator.get_next()
-		else:
-			self.x_input = x_in
-		self.y_input = tf.placeholder(tf.float32, name="network_output")
+						print("Creating dataset pipeline...")
+						self.dataset = tf.data.Dataset.from_tensor_slices((self.X,self.Y))
+						self.dataset = self.dataset.shuffle(self.shuffle_size)
+						self.dataset = self.dataset.batch(self.batch_size)
+						# self.dataset = self.dataset.repeat(self.epochs)
+						# self.dataset = self.dataset.prefetch(1)
+						self.data_iterator = self.dataset.make_initializable_iterator()
+						self.x_data, self.y_data  = self.data_iterator.get_next()
+			else:
+				self.x_input = x_in
+			self.y_input = tf.placeholder(tf.float32, name="network_output")
 
 	def build_network(self):
 		print("Building Network structure...")
 		if self.structure is not None:
-			with tf.name_scope("Network") as self.name_scope:
+			with tf.name_scope(self.name_scope):
 				for layer in self.structure:
 					self.add_layer(**layer)
 		else:
