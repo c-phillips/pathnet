@@ -104,9 +104,7 @@ config = {
 	}
 }
 # sess = tf.InteractiveSession()
-sess = tf.InteractiveSession()
 PN = Pathnet(config, N)
-writer = tf.summary.FileWriter("./logs/", sess.graph)
 
 mat = []
 for i in range(L):
@@ -118,5 +116,4 @@ for i in range(L):
 
 path = np.array(mat)
 
-PN.train(sess, x_train, y_train, x_test, y_test, tf.losses.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.5), path, T, BATCH)
-writer.close()
+PN.train(x_train, y_train, x_test, y_test, tf.losses.softmax_cross_entropy, tf.train.GradientDescentOptimizer(learning_rate=0.05), path, T, BATCH)
