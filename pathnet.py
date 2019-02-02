@@ -141,7 +141,7 @@ class Pathnet:
             self.output = self.sums[-1] # the main network output is the last sum layer
             self.data_layer = self.network_structure[0][0] # this makes it easy to access our datapipeline
     
-    def train(self, sess, x_train, y_train, loss_func, opt_func, path, T, batch):
+    def train(self, sess, x_train, y_train, x_test, y_test, loss_func, opt_func, path, T, batch):
         """This method is used to train the individual pathnet agent.
         A session reference must be passed, as well as the path to train over.
 
@@ -178,7 +178,7 @@ class Pathnet:
         sess.run(tf.global_variables_initializer())
         sess.run(tf.local_variables_initializer())
 
-        bar_width = 40
+        bar_width = 25
 
         for epoch_num in range(T):
             print(f"\nEpoch {epoch_num+1}/{T}:")
@@ -203,16 +203,38 @@ class Pathnet:
                     num_blocks = int(current_batch/num_batches*bar_width)
                     bar_string = u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7"
 
-                    # if current_batch%10 == 0:
-                    #     l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.fm.x_input:x_batch, self.fm.y_input:y_batch})
-                    #     loss += l
-                    #     acc += a
-                    #     sys.stdout.write(bar_string+f": {loss/current_batch*10:.4f}, {acc/current_batch*10:.4f}")
-                    # else:
-                    sys.stdout.write(bar_string)
+                    if current_batch%10 == 0:
+                        l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+                        loss += l
+                        acc += a
+                        sys.stdout.write(bar_string+f" : {loss/current_batch*10:.4f}, {acc/current_batch*10:.4f}")
+                    else:
+                        sys.stdout.write(bar_string)
 
                     sys.stdout.flush()
 
                 except tf.errors.OutOfRangeError:
                     break
+            # Validate the model against test data
+            sess.run(self.data_layer.data_iterator.initializer,
+                feed_dict={
+                    self.data_layer.X:x_train,
+                    self.data_layer.Y:y_train,
+                    self.data_layer.batch_size:batch,
+                    self.data_layer.shuffle_size:1#x_train.shape[0]
+                }
+            )
+            loss = acc = 0
+            current_batch = 0 
+            num_batches = int(x_test.shape[0]/batch)
+            while True:
+                try:
+                    x_batch, y_batch = sess.run([self.data_layer.x_data, self.data_layer.y_data])
+                    l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+                    loss += l/num_batches
+                    acc += a/num_batches
+
+                except tf.errors.OutOfRangeError:
+                    break
+            print(f"\nValidation: L({loss:.6f}), A({acc*100:.4f}%)")
         print("\nFinished!")

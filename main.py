@@ -118,5 +118,5 @@ for i in range(L):
 
 path = np.array(mat)
 
-PN.train(sess, x_train, y_train, tf.losses.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.05), path, T, BATCH)
+PN.train(sess, x_train, y_train, x_test, y_test, tf.losses.softmax_cross_entropy, tf.train.AdamOptimizer(learning_rate=0.5), path, T, BATCH)
 writer.close()
