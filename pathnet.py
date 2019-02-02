@@ -60,7 +60,7 @@ class Pathnet:
     moment.
     """
     def __init__(self, config, N):
-        with tf.variable_scope("PathNet", reuse=False) as self.var_scope:
+        with tf.name_scope("PathNet") as self.name_scope:
             # first, we will instantiate the networks for each pathnet layer
             self.network_structure = []
 
@@ -89,11 +89,6 @@ class Pathnet:
 
                         self.Pmat = tf.placeholder(tf.float32, [self.L, self.M], name="PathMatrix")
                         print(self.Pmat.get_shape().as_list())
-
-                    # with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
-                    sum_shape = self.sums[-1].get_shape().as_list() if l > self.first_layer else self.network_structure[self.first_layer-1][0].yhat.get_shape().as_list()
-                    s = tf.get_variable("sum_{}".format(layer_name), shape=(), initializer=tf.zeros_initializer())
-                    self.sums.append(s)
                 else:
                     print("CONDITIONING: {}".format(layer_name))
 
@@ -110,7 +105,7 @@ class Pathnet:
                     # networks/layers have been created. 
                     input_ref = None
                     if i == 0 and self.first_layer is not None and l > self.first_layer:
-                        input_ref = self.sums[-2]
+                        input_ref = self.sums[-1]
                     elif i == 0 and self.first_layer is not None and l == self.first_layer:
                         input_ref = self.network_structure[self.first_layer-1][0].yhat
                     elif i == 0 and self.first_layer is None and l > 0:
@@ -129,6 +124,14 @@ class Pathnet:
 
                     del temp_struct
                     new_layer[-1].build_network()
+
+                    if 'conditioning' not in layer_structure and i == 0:
+                        sum_shape = new_layer[-1].yhat.get_shape().as_list() # self.sums[-1].get_shape().as_list() if l > self.first_layer else 
+                        with tf.variable_scope("sums_{}".format(layer_name), reuse=tf.AUTO_REUSE):
+                            s = tf.get_variable("sum", [*sum_shape[1:]], initializer=tf.zeros_initializer())#, validate_shape=False)
+                            # s = tf.get_variable("sum", initializer=tf.truncated_normal([*sum_shape[1:]], mean=0.0, stddev=0.0))
+                        self.sums.append(s)
+
                     if self.first_layer is not None:
                         self.sums[-1] = self.sums[-1]+self.Pmat[l-self.first_layer,i]*new_layer[-1].yhat
 
@@ -156,7 +159,7 @@ class Pathnet:
         The function will then feed the appropriate values through to the Pmat
         placeholder, and select the proper variables to optimize over
         """
-        with tf.variable_scope(self.var_scope, reuse=tf.AUTO_REUSE):
+        with tf.name_scope(self.name_scope):
             # we need to store the variables we need to optimize over according to the path
             train_vars = []
             for l in range(path.shape[0]):
