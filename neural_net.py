@@ -21,6 +21,8 @@ class NeuralNetwork:
 		print("Initializing Network...")
 		self.layers = []
 		self.structure = network_structure
+		if name is not None:
+			self.name = name
 
 		# self.output_size = network_structure[-1]['num_nodes']
 		with tf.name_scope(name if name is not None else "Network") as self.name_scope:
@@ -70,9 +72,9 @@ class NeuralNetwork:
 			x_layer = self.x_input
 
 		if name is not None:
-			layer_name = name
+			layer_name = name+"_"+self.name
 		else:
-			layer_name = layer_type+str(len(self.layers))
+			layer_name = layer_type+str(len(self.layers))+"_"+self.name
 
 								 #    net_scope,       name,       x,             shape,           layer_type="linear",   activation=tf.nn.relu)
 		self.layers.append(NNLayer(self.name_scope, layer_name, x_layer, [num_nodes, *input_size], layer_type=layer_type, activation=activation))

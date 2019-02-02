@@ -60,7 +60,7 @@ trainer.train(x_train, y_train, x_test, y_test, batch=BATCH_SIZE, epochs=EPOCHS)
 L = 3
 M = int(6)
 N = 3
-T = 1
+T = 7
 BATCH = 32
 
 config = {
