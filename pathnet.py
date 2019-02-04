@@ -60,46 +60,48 @@ class Pathnet:
     moment.
     """
     def __init__(self, config, N):
-        with tf.variable_scope("PathNet", reuse=tf.AUTO_REUSE) as self.var_scope:
-            # first, we will instantiate the networks for each pathnet layer
-            self.network_structure = []
+        # with tf.variable_scope("PathNet", reuse=tf.AUTO_REUSE) as self.var_scope:
+        # first, we will instantiate the networks for each pathnet layer
+        self.network_structure = []
 
-            data_dims = list(config.pop("datashape", None))
-            if data_dims is None:
-                raise ValueError("You must provide a datashape parameter to configure PathNet!")
-            data_dims.insert(0, None)
-            print(data_dims)
+        data_dims = list(config.pop("datashape", None))
+        if data_dims is None:
+            raise ValueError("You must provide a datashape parameter to configure PathNet!")
+        data_dims.insert(0, None)
+        print(data_dims)
 
-            self.M = 0
-            self.L = 0
-            self.N = N
+        self.M = 0
+        self.L = 0
+        self.N = N
 
-            self.first_layer = None
-            self.sums = []
-            for l, (layer_name, layer_structure) in enumerate(config.items()):
-                new_layer = []
-                
-                if 'conditioning' not in layer_structure:
-                    print(layer_name)
-                    if self.M == 0:
-                        self.M = layer_structure['num_modules']
-                        self.first_layer = l
-                        self.L = len(config.items())-l
-                        print("FIRST LAYER: {}".format(layer_name))
+        self.first_layer = None
+        self.sums = []
+        for l, (layer_name, layer_structure) in enumerate(config.items()):
+            new_layer = []
+            
+            if 'conditioning' not in layer_structure:
+                print(layer_name)
+                if self.M == 0:
+                    self.M = layer_structure['num_modules']
+                    self.first_layer = l
+                    self.L = len(config.items())-l
+                    print("FIRST LAYER: {}".format(layer_name))
 
-                        self.Pmat = tf.placeholder(tf.float32, [self.L, self.M], name="PathMatrix")
-                        print(self.Pmat.get_shape().as_list())
-                else:
-                    print("CONDITIONING: {}".format(layer_name))
+                    self.Pmat = tf.placeholder(tf.float32, [self.L, self.M], name="PathMatrix")
+                    print(self.Pmat.get_shape().as_list())
+            else:
+                print("CONDITIONING: {}".format(layer_name))
 
+
+            with tf.variable_scope(layer_name):
                 for i in range(layer_structure['num_modules']):
                     # if it is the first module of the layer, we set the x_input to None for
                     # assignment later; otherwise, we set it to the input of the first module
                     temp_struct = copy.deepcopy(layer_structure['module_structure'])
-                    for j in range(len(temp_struct)):
-                        if 'name' in temp_struct[j]:
-                            temp_struct[j]['name'] += "_{}_{}".format(layer_name, i+1)
-                            # print(temp_struct[j]['name'])
+                    # for j in range(len(temp_struct)):
+                    #     if 'name' in temp_struct[j]:
+                    #         temp_struct[j]['name'] += "_{}_{}".format(layer_name, i+1)
+                    #         # print(temp_struct[j]['name'])
 
                     # We need to select the proper input for this network provided the other
                     # networks/layers have been created. 
@@ -112,34 +114,34 @@ class Pathnet:
                         input_ref = self.network_structure[l-1].yhat
                     elif i > 0 and self.first_layer is not None:
                         input_ref = new_layer[0].x_input
-
-                    new_layer.append(
-                        NeuralNetwork(temp_struct,
-                                    x_in = input_ref,
-                                    x_in_shape = data_dims if l == 0 else self.network_structure[l-1][0].yhat.get_shape().as_list(),
-                                    make_dataset = True if l == 0 else False,
-                                    name = "Network_"+layer_name+"_M"+str(i)
+                        
+                    with tf.variable_scope("M"+str(i)):
+                        new_layer.append(
+                            NeuralNetwork(temp_struct,
+                                        x_in = input_ref,
+                                        x_in_shape = data_dims if l == 0 else self.network_structure[l-1][0].yhat.get_shape().as_list(),
+                                        make_dataset = True if l == 0 else False,
+                                        name = "M"+str(i)
+                            )
                         )
-                    )
+                        new_layer[-1].build_network()
 
                     del temp_struct
-                    new_layer[-1].build_network()
-
                     if 'conditioning' not in layer_structure and i == 0:
                         sum_shape = new_layer[-1].yhat.get_shape().as_list() # self.sums[-1].get_shape().as_list() if l > self.first_layer else 
-                        with tf.variable_scope("sums_{}".format(layer_name), reuse=tf.AUTO_REUSE):
-                            s = tf.get_variable("sum", [*sum_shape[1:]], initializer=tf.zeros_initializer())#, validate_shape=False)
+                        # with tf.variable_scope("sums_{}".format(layer_name), reuse=tf.AUTO_REUSE):
+                        s = tf.get_variable("sum", [*sum_shape[1:]], initializer=tf.zeros_initializer())#, validate_shape=False)
                             # s = tf.get_variable("sum", initializer=tf.truncated_normal([*sum_shape[1:]], mean=0.0, stddev=0.0))
                         self.sums.append(s)
 
                     if self.first_layer is not None:
                         self.sums[-1] = self.sums[-1]+self.Pmat[l-self.first_layer,i]*new_layer[-1].yhat
 
-                    tf.get_variable_scope().reuse_variables()
-                self.network_structure.append(new_layer)
+                    # tf.get_variable_scope().reuse_variables()
+            self.network_structure.append(new_layer)
 
-            self.output = self.sums[-1] # the main network output is the last sum layer
-            self.data_layer = self.network_structure[0][0] # this makes it easy to access our datapipeline
+        self.output = self.sums[-1] # the main network output is the last sum layer
+        self.data_layer = self.network_structure[0][0] # this makes it easy to access our datapipeline
     
     def train(self, x_train, y_train, x_test, y_test, loss_func, opt_func, path, T, batch):
         """This method is used to train the individual pathnet agent.
@@ -160,7 +162,10 @@ class Pathnet:
         placeholder, and select the proper variables to optimize over
         """
         with tf.Session() as sess:
-            writer = tf.summary.FileWriter("./logs/", sess.graph)
+            # writer = tf.summary.FileWriter("./logs/", sess.graph)
+            merged_summaries = tf.summary.merge_all()
+            train_writer = tf.summary.FileWriter("./logs/train", sess.graph)
+            test_writer = tf.summary.FileWriter("./logs/test")
             # with tf.variable_scope(self.var_scope):
             # we need to store the variables we need to optimize over according to the path
             train_vars = []
@@ -206,7 +211,9 @@ class Pathnet:
                         bar_string = u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7"
 
                         if current_batch%10 == 0:
-                            l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+                            l, a, _, summary = sess.run([loss_op, accuracy, accuracy_op, merged_summaries], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+                            train_writer.add_summary(summary, current_batch+(num_batches*epoch_num))
+
                             loss += l
                             acc += a
                             sys.stdout.write(bar_string+f" : {loss/current_batch*10:.4f}, {acc/current_batch*10:.4f}")
@@ -232,7 +239,14 @@ class Pathnet:
                 while True:
                     try:
                         x_batch, y_batch = sess.run([self.data_layer.x_data, self.data_layer.y_data])
-                        l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+
+                        if current_batch%10 == 0:
+                            l, a, _, summary = sess.run([loss_op, accuracy, accuracy_op, merged_summaries], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+                            test_writer.add_summary(summary, current_batch+(num_batches*epoch_num))
+                        else:
+                            l, a, _ = sess.run([loss_op, accuracy, accuracy_op], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+
+                        current_batch += 1
                         loss += l/num_batches
                         acc += a/num_batches
 
@@ -240,35 +254,37 @@ class Pathnet:
                         break
                 print(f"\nValidation: L({loss:.6f}), A({acc*100:.4f}%)")
             print("\nFinished!")
-            writer.close()
+            # writer.close()
+            test_writer.close()
+            train_writer.close()
 
-            rows = 6
-            columns = 5
-            images = rows*columns
-            num_correct = 0
-            plt.figure()
-            for i in range(images):
-                y = sess.run(self.output, feed_dict={self.data_layer.x_input:np.expand_dims(x_test[i],axis=0), self.data_layer.y_input:np.expand_dims(y_test[i], axis=0), self.Pmat:path})
-                # print(y[0])
-                # print(y_test[i])
-                # print("")
+            # rows = 6
+            # columns = 5
+            # images = rows*columns
+            # num_correct = 0
+            # plt.figure()
+            # for i in range(images):
+            #     y = sess.run(self.output, feed_dict={self.data_layer.x_input:np.expand_dims(x_test[i],axis=0), self.data_layer.y_input:np.expand_dims(y_test[i], axis=0), self.Pmat:path})
+            #     # print(y[0])
+            #     # print(y_test[i])
+            #     # print("")
 
-                class_names = [ 'T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 
-                                'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
-                cat_nums = np.arange(len(y[0]))
+            #     class_names = [ 'T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 
+            #                     'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+            #     cat_nums = np.arange(len(y[0]))
 
-                imax = plt.subplot(rows, 2*columns, 2*i+1)
-                imax.imshow(x_test[i].reshape(28,28))
+            #     imax = plt.subplot(rows, 2*columns, 2*i+1)
+            #     imax.imshow(x_test[i].reshape(28,28))
 
-                predax = plt.subplot(rows, 2*columns, 2*i+2)
-                correct = False
-                if np.argmax(y[0]) == np.argmax(y_test[i]):
-                    correct = True
-                    num_correct += 1
-                predax.bar(cat_nums, y[0], color='g' if correct else 'r')
-                predax.set_xticks(cat_nums)
-                predax.set_xticklabels(class_names, rotation=60)
+            #     predax = plt.subplot(rows, 2*columns, 2*i+2)
+            #     correct = False
+            #     if np.argmax(y[0]) == np.argmax(y_test[i]):
+            #         correct = True
+            #         num_correct += 1
+            #     predax.bar(cat_nums, y[0], color='g' if correct else 'r')
+            #     predax.set_xticks(cat_nums)
+            #     predax.set_xticklabels(class_names, rotation=60)
 
-            print(f"Example accuracy: {num_correct/images*100}%")
-            plt.subplots_adjust(hspace=0.4)
-            plt.show()
+            # print(f"Example accuracy: {num_correct/images*100}%")
+            # plt.subplots_adjust(hspace=0.4)
+            # plt.show()

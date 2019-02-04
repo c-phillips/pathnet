@@ -23,20 +23,38 @@ class NNLayer:
 		self.x_layer = x
 		self.activation = activation
 
-		with tf.name_scope(net_scope) as self.net_scope:
-			with tf.variable_scope(self.name, reuse=tf.AUTO_REUSE) as self.scope:
-				if layer_type == "linear":
-					self.weights = tf.get_variable(f"W_{self.name}", initializer=tf.truncated_normal([*self.input_size[1:], self.num_nodes], mean=0.0, stddev=0.02))
-					self.biases = tf.get_variable(f"b_{self.name}", initializer=tf.truncated_normal([self.num_nodes], mean=0.0, stddev=0.02))
+		# with tf.variable_scope(net_scope) as self.net_scope:
+		with tf.variable_scope(self.name) as self.scope:
+			if layer_type == "linear":
+				self.weights = self.get_var(f"W", initializer=tf.truncated_normal([*self.input_size[1:], self.num_nodes], mean=0.0, stddev=0.02)) 
+				self.biases = self.get_var(f"b", initializer=tf.truncated_normal([self.num_nodes], mean=0.0, stddev=0.02))
 
-					self.y_layer = self.activation(tf.add(tf.matmul(self.x_layer, self.weights), self.biases))
+				self.y_layer = self.activation(tf.add(tf.matmul(self.x_layer, self.weights), self.biases))
+				self.attach_summaries(self.y_layer)
 
-				elif layer_type == "flatten":
-					self.y_layer = tf.layers.flatten(self.x_layer)
+			elif layer_type == "flatten":
+				self.y_layer = tf.layers.flatten(self.x_layer)
 
-				elif layer_type == "conv2d":
-					self.y_layer = tf.nn.conv()
+			elif layer_type == "conv2d":
+				self.y_layer = tf.nn.conv()
 
-				else:
-					raise NotImplementedError(f"Cannot create a layer of type: {layer_type}")
+			else:
+				raise NotImplementedError(f"Cannot create a layer of type: {layer_type}")
 
+	def get_var(self, *args, **kwargs):
+		# tf.get_variable(f"W_{self.name}", initializer=tf.truncated_normal([*self.input_size[1:], self.num_nodes], mean=0.0, stddev=0.02))
+		v = tf.get_variable(*args, **kwargs)
+		self.attach_summaries(v, args[0])
+		return v
+
+	def attach_summaries(self, var, scope="summaries"):
+		"""Attaches summaries for tensorboard visualization.
+		"""
+		with tf.name_scope(scope):
+			mean = tf.reduce_mean(var)
+			tf.summary.scalar('mean', mean)
+			stddev = tf.sqrt(tf.reduce_mean(tf.square(var - mean)))
+			tf.summary.scalar('stddev', stddev)
+			tf.summary.scalar('max', tf.reduce_max(var))
+			tf.summary.scalar('min', tf.reduce_min(var))
+			tf.summary.histogram('histogram', var)
