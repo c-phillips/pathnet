@@ -4,7 +4,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import random
+import random, os
 
 import numpy as np
 import tensorflow as tf
@@ -12,6 +12,28 @@ import tensorflow as tf
 from neural_net import NeuralNetwork
 from nn_trainer import NetTrainer
 from pathnet import Pathnet
+
+# remove logs from past runs
+current_dir = os.path.dirname(os.path.realpath(__file__))
+
+train_dir = os.path.join(current_dir, "./logs/train")
+for f in os.listdir(train_dir):
+	fp = os.path.join(train_dir, f)
+	try:
+		if os.path.isfile(fp):
+			os.unlink(fp)
+	except Exception as e:
+		print(e)
+
+test_dir = os.path.join(current_dir, "./logs/test")
+for f in os.listdir(test_dir):
+	fp = os.path.join(test_dir, f)
+	try:
+		if os.path.isfile(fp):
+			os.unlink(fp)
+	except Exception as e:
+		print(e)
+
 
 # Load the training data
 (x_train, y_train), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
@@ -60,7 +82,7 @@ trainer.train(x_train, y_train, x_test, y_test, batch=BATCH_SIZE, epochs=EPOCHS)
 L = 3
 M = int(6)
 N = 3
-T = 2
+T = 10
 BATCH = 32
 
 config = {
@@ -115,5 +137,6 @@ for i in range(L):
 	mat.append(row)
 
 path = np.array(mat)
+print(path)
 
-PN.train(x_train, y_train, x_test, y_test, tf.losses.softmax_cross_entropy, tf.train.GradientDescentOptimizer(learning_rate=0.05), path, T, BATCH)
+PN.train(x_train, y_train, x_test, y_test, tf.losses.softmax_cross_entropy, tf.train.GradientDescentOptimizer(learning_rate=0.1), path, T, BATCH)
