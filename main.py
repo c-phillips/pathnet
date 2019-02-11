@@ -83,7 +83,7 @@ L = 3
 M = int(6)
 N = 3
 T = 10
-BATCH = 32
+BATCH = 16
 
 config = {
 	"datashape": data_dims,
@@ -128,15 +128,16 @@ config = {
 # sess = tf.InteractiveSession()
 PN = Pathnet(config, N)
 
-mat = []
-for i in range(L):
-	indices = random.sample(range(M), N)
-	row = [0]*M
-	for ind in indices:
-		row[ind] = 1
-	mat.append(row)
+def get_path(accuracy):
+	mat = []
+	for i in range(L):
+		indices = random.sample(range(M), N)
+		row = [0]*M
+		for ind in indices:
+			row[ind] = 1
+		mat.append(row)
 
-path = np.array(mat)
-print(path)
+	path = np.array(mat)
+	print(path)
 
-PN.train(x_train, y_train, x_test, y_test, tf.losses.softmax_cross_entropy, tf.train.GradientDescentOptimizer(learning_rate=0.1), path, T, BATCH)
+PN.train(x_train, y_train, x_test, y_test, tf.losses.softmax_cross_entropy, tf.train.GradientDescentOptimizer(learning_rate=0.001), T, BATCH, path_func=get_path)

@@ -14,6 +14,8 @@ import sys, copy
 
 from neural_net import NeuralNetwork
 from nn_layer import NNLayer
+            
+bar_width = 25
 
 class Pathnet:
     """This class contains the main structure for pathnet. At initialization time,
@@ -143,7 +145,7 @@ class Pathnet:
         self.output = self.sums[-1] # the main network output is the last sum layer
         self.data_layer = self.network_structure[0][0] # this makes it easy to access our datapipeline
     
-    def train(self, x_train, y_train, x_test, y_test, loss_func, opt_func, path, T, batch):
+    def train(self, x_train, y_train, x_test, y_test, loss_func, opt_func, T, batch, num_batches=None, path_func=None):
         """This method is used to train the individual pathnet agent.
         A session reference must be passed, as well as the path to train over.
 
@@ -155,50 +157,82 @@ class Pathnet:
             y_test:     the output testing data
             loss_func:  the tensorflow loss function to use
             opt_func:   the tensorflow optimization function to use
-            path:       the module selection path for directed training
             T:          the number of epochs over which to optimize
             batch:      the batch size to train with
+            num_batches:the number of batches to train for each epoch
+            path_func:  the function to call for path generation
 
         The path must be an LxM matrix correspoding to the modules to train.
         The function will then feed the appropriate values through to the Pmat
         placeholder, and select the proper variables to optimize over
         """
+        get_path = path_func if path_func is not None else self.get_path
         with tf.Session() as sess:
-            # writer = tf.summary.FileWriter("./logs/", sess.graph)
+            # we need to merge all of the variable summaries for reporting
             merged_summaries = tf.summary.merge_all()
+
+            # here is where we initialize the summary writers
             train_writer = tf.summary.FileWriter("./logs/train", sess.graph)
             test_writer = tf.summary.FileWriter("./logs/test")
 
+            # we have to specify placeholders for some performance metrics that we calculate ourselves
+            # then we pass the scalar values through a feed_dict when we process the summaries.
             loss_ph = tf.placeholder(tf.float32, shape=None, name="loss_summary")
             loss_summary = tf.summary.scalar("loss", loss_ph)
 
             acc_ph = tf.placeholder(tf.float32, shape=None, name="acc_summary")
             acc_summary = tf.summary.scalar("accuracy", acc_ph)
 
-            performance_summaries = tf.summary.merge([loss_summary, acc_summary])
-            # with tf.variable_scope(self.var_scope):
-            # we need to store the variables we need to optimize over according to the path
+            performance_summaries = tf.summary.merge([loss_summary, acc_summary])   # merge the custom summaries
+            
+            # Here we initialize the training variable list to hold everything for the time being.
+            # During processing, this list is updated to reflect the current path. The reference should be stored
+            # in the opt_op so when it changes, it should properly compute the right variables. 
             train_vars = []
-            for l in range(path.shape[0]):
-                for m in range(path.shape[1]):
-                    if path[l,m] != 0:
+            for l in range(self.L):
+                    for m in range(self.M):
                         for layer in self.network_structure[l+self.first_layer][m].layers:
-                            # naturally this will need to change if the structure of the layer
-                            # does not use weights and biases
                             train_vars.append(layer.weights)
                             train_vars.append(layer.biases)
+            opt_op = opt_func.minimize(loss_op, var_list=train_vars)
             
             loss_op = loss_func(self.data_layer.y_input, self.output)
-            opt_op = opt_func.minimize(loss_op, var_list=train_vars)
-            accuracy, accuracy_op = tf.metrics.accuracy(labels=self.data_layer.y_input, predictions=self.output)
+
+            # This calculates the accuracy using the MAP from the output
+            with tf.name_scope('accuracy'):
+                with tf.name_scope('correct_prediction'):
+                    correct_prediction = tf.equal(tf.argmax(self.data_layer.y_input, 1), tf.argmax(self.output, 1))
+                with tf.name_scope('accuracy'):
+                    accuracy_op = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+            # accuracy, accuracy_op = tf.metrics.accuracy(labels=self.data_layer.y_input, predictions=self.output)
 
             sess.run(tf.global_variables_initializer())
             sess.run(tf.local_variables_initializer())
 
-            bar_width = 25
-
+            # we need a way to average and track performance variables accross batches
+            avg = lambda x: sum(x)/len(x) if len(x) > 0 else 0
+            loss = []
+            acc = []
+            metric_dict = {}    # we will add metrics to this dictionary and pass it to the path generator
             for epoch_num in range(T):
+                loss.clear()
+                acc.clear()
+                metric_dict.clear()
+
+                # we need to store the variables we need to optimize over according to the path
+                path = get_path(metric_dict)
+                train_vars.clear()
+                for l in range(path.shape[0]):
+                    for m in range(path.shape[1]):
+                        if path[l,m] != 0:
+                            for layer in self.network_structure[l+self.first_layer][m].layers:
+                                # naturally this will need to change if the structure of the layer
+                                # does not use weights and biases
+                                train_vars.append(layer.weights)
+                                train_vars.append(layer.biases)
+
                 print(f"\nEpoch {epoch_num+1}/{T}:")
+
                 # Initialize data for training
                 sess.run(self.data_layer.data_iterator.initializer,
                     feed_dict={
@@ -210,16 +244,11 @@ class Pathnet:
                 )
                 num_batches = int(x_train.shape[0]/batch)
                 current_batch = 0
-                avg = lambda x: sum(x)/len(x)
-                loss = []
-                acc = []
-                while True:
+                while current_batch < num_batches or num_batches is None:
                     try:
                         x_batch, y_batch = sess.run([self.data_layer.x_data, self.data_layer.y_data])
                         sess.run(opt_op, feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
                         l, a = sess.run([loss_op, accuracy_op], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
-                        # loss += l/num_batches
-                        # acc += a/num_batches
                         loss.append(l)
                         acc.append(a)
 
@@ -227,10 +256,17 @@ class Pathnet:
                         num_blocks = int(current_batch/num_batches*bar_width)
                         bar_string = u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7 "
 
-                        if current_batch%10 == 0:
-                            summary = sess.run(performance_summaries, feed_dict={loss_ph:avg(loss), acc_ph:avg(acc)})
-                            train_writer.add_summary(summary, current_batch+(num_batches*epoch_num))
+                        if current_batch%10 == 0 and current_batch > 0:
+                            performance_summary= sess.run(performance_summaries, feed_dict={loss_ph:avg(loss), acc_ph:avg(acc)})
+                            train_writer.add_summary(performance_summary, current_batch+(num_batches*epoch_num))
+
+                            var_summary = sess.run(merged_summaries, feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
+                            train_writer.add_summary(var_summary, current_batch+(num_batches*epoch_num))
+                            
                             sys.stdout.write(bar_string+f": {avg(loss):.4f}, {avg(acc)*100:.2f}%")
+                            
+                            loss.clear()
+                            acc.clear()
                         else:
                             sys.stdout.write(bar_string)
 
@@ -238,31 +274,33 @@ class Pathnet:
 
                     except tf.errors.OutOfRangeError:
                         break
+
                 # Validate the model against test data
                 sess.run(self.data_layer.data_iterator.initializer,
                     feed_dict={
-                        self.data_layer.X:x_train,
-                        self.data_layer.Y:y_train,
+                        self.data_layer.X:x_test,
+                        self.data_layer.Y:y_test,
                         self.data_layer.batch_size:batch,
                         self.data_layer.shuffle_size:1#x_train.shape[0]
                     }
                 )
-                loss = []
-                acc = []
+                loss.clear()
+                acc.clear()
                 current_batch = 0 
                 num_batches = int(x_test.shape[0]/batch)
                 while True:
                     try:
                         x_batch, y_batch = sess.run([self.data_layer.x_data, self.data_layer.y_data])
                         l, a = sess.run([loss_op, accuracy_op], feed_dict={self.data_layer.x_input:x_batch, self.data_layer.y_input:y_batch, self.Pmat:path})
-                        # loss += l/num_batches
-                        # acc += a/num_batches
                         loss.append(l)
                         acc.append(a)
 
                         if current_batch%10 == 0:
                             summary = sess.run(performance_summaries, feed_dict={loss_ph:avg(loss), acc_ph:avg(acc)})
                             test_writer.add_summary(summary, current_batch+(num_batches*epoch_num))
+                            
+                            loss.clear()
+                            acc.clear()
 
                         current_batch += 1
 
@@ -271,7 +309,7 @@ class Pathnet:
 
                 print(f"\nValidation: L({avg(loss):.6f}), A({avg(acc)*100:.4f}%)")
             print("\nFinished!")
-            # writer.close()
+                
             test_writer.close()
             train_writer.close()
 
