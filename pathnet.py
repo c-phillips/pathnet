@@ -65,6 +65,10 @@ class Pathnet:
         # with tf.variable_scope("PathNet", reuse=tf.AUTO_REUSE) as self.var_scope:
         # first, we will instantiate the networks for each pathnet layer
         self.network_structure = []
+        self.x_train = None
+        self.y_train = None
+        self.x_test = None
+        self.y_test = None
 
         data_dims = list(config.pop("datashape", None))
         if data_dims is None:
@@ -145,28 +149,41 @@ class Pathnet:
         self.output = self.sums[-1] # the main network output is the last sum layer
         self.data_layer = self.network_structure[0][0] # this makes it easy to access our datapipeline
     
-    def train(self, x_train, y_train, x_test, y_test, loss_func, opt_func, T, batch, num_batches=None, path_func=None):
+    def set_data(self, all_data):
+        print(len(all_data))
+        assert len(all_data) == 4, "You must provide a test set and train set with labels!"
+        self.x_train = all_data[0]
+        self.y_train = all_data[1]
+        self.x_test = all_data[2]
+        self.y_test = all_data[3]
+
+    def train(self, loss_func, opt_func, T, batch, num_batches=None, path=None, conn=None):
         """This method is used to train the individual pathnet agent.
         A session reference must be passed, as well as the path to train over.
 
         Args:
             sess:       the tensorflow session to run operations
-            x_train:    the input training data
-            y_train:    the output training data
-            x_test:     the input testing data
-            y_test:     the output testing data
+            # x_train:    the input training data
+            # y_train:    the output training data
+            # x_test:     the input testing data
+            # y_test:     the output testing data
             loss_func:  the tensorflow loss function to use
             opt_func:   the tensorflow optimization function to use
             T:          the number of epochs over which to optimize
             batch:      the batch size to train with
             num_batches:the number of batches to train for each epoch
-            path_func:  the function to call for path generation
+            path:       the path to train over
+            conn:       the multiprocessing pipe
 
         The path must be an LxM matrix correspoding to the modules to train.
         The function will then feed the appropriate values through to the Pmat
         placeholder, and select the proper variables to optimize over
         """
-        get_path = path_func if path_func is not None else self.get_path
+        if self.x_train is None:
+            print("ERR: Must call set_data before training!")
+            exit()
+
+        # get_path = path_func if path_func is not None else self.get_path
         with tf.Session() as sess:
             # we need to merge all of the variable summaries for reporting
             merged_summaries = tf.summary.merge_all()
@@ -185,6 +202,8 @@ class Pathnet:
 
             performance_summaries = tf.summary.merge([loss_summary, acc_summary])   # merge the custom summaries
             
+            loss_op = loss_func(self.data_layer.y_input, self.output)
+            
             # Here we initialize the training variable list to hold everything for the time being.
             # During processing, this list is updated to reflect the current path. The reference should be stored
             # in the opt_op so when it changes, it should properly compute the right variables. 
@@ -195,8 +214,6 @@ class Pathnet:
                             train_vars.append(layer.weights)
                             train_vars.append(layer.biases)
             opt_op = opt_func.minimize(loss_op, var_list=train_vars)
-            
-            loss_op = loss_func(self.data_layer.y_input, self.output)
 
             # This calculates the accuracy using the MAP from the output
             with tf.name_scope('accuracy'):
@@ -213,6 +230,7 @@ class Pathnet:
             avg = lambda x: sum(x)/len(x) if len(x) > 0 else 0
             loss = []
             acc = []
+            recent_metrics = []
             metric_dict = {}    # we will add metrics to this dictionary and pass it to the path generator
             for epoch_num in range(T):
                 loss.clear()
@@ -220,7 +238,7 @@ class Pathnet:
                 metric_dict.clear()
 
                 # we need to store the variables we need to optimize over according to the path
-                path = get_path(metric_dict)
+                # path = get_path(metric_dict)
                 train_vars.clear()
                 for l in range(path.shape[0]):
                     for m in range(path.shape[1]):
@@ -236,13 +254,13 @@ class Pathnet:
                 # Initialize data for training
                 sess.run(self.data_layer.data_iterator.initializer,
                     feed_dict={
-                        self.data_layer.X:x_train,
-                        self.data_layer.Y:y_train,
+                        self.data_layer.X:self.x_train,
+                        self.data_layer.Y:self.y_train,
                         self.data_layer.batch_size:batch,
-                        self.data_layer.shuffle_size:x_train.shape[0]
+                        self.data_layer.shuffle_size:self.x_train.shape[0]
                     }
                 )
-                num_batches = int(x_train.shape[0]/batch)
+                num_batches = int(self.x_train.shape[0]/batch)
                 current_batch = 0
                 while current_batch < num_batches or num_batches is None:
                     try:
@@ -254,7 +272,7 @@ class Pathnet:
 
                         current_batch += 1
                         num_blocks = int(current_batch/num_batches*bar_width)
-                        bar_string = u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7 "
+                        bar_string = ""#u"\r\u25D6"+u"\u25A9"*num_blocks+" "*(bar_width-num_blocks)+u"\u25D7 "
 
                         if current_batch%10 == 0 and current_batch > 0:
                             performance_summary= sess.run(performance_summaries, feed_dict={loss_ph:avg(loss), acc_ph:avg(acc)})
@@ -265,6 +283,9 @@ class Pathnet:
                             
                             sys.stdout.write(bar_string+f": {avg(loss):.4f}, {avg(acc)*100:.2f}%")
                             
+                            recent_metrics.clear()
+                            recent_metrics.append(avg(acc))
+
                             loss.clear()
                             acc.clear()
                         else:
@@ -275,11 +296,18 @@ class Pathnet:
                     except tf.errors.OutOfRangeError:
                         break
 
+                if conn is not None:
+                    conn.send(str(*recent_metrics))
+                    while not conn.poll():
+                        continue
+                iteration_number, path = conn.recv()
+                assert type(path) == np.ndarray, "PATH MUST BE NUMPY ARRAY"
+
                 # Validate the model against test data
                 sess.run(self.data_layer.data_iterator.initializer,
                     feed_dict={
-                        self.data_layer.X:x_test,
-                        self.data_layer.Y:y_test,
+                        self.data_layer.X:self.x_test,
+                        self.data_layer.Y:self.y_test,
                         self.data_layer.batch_size:batch,
                         self.data_layer.shuffle_size:1#x_train.shape[0]
                     }
@@ -287,7 +315,7 @@ class Pathnet:
                 loss.clear()
                 acc.clear()
                 current_batch = 0 
-                num_batches = int(x_test.shape[0]/batch)
+                num_batches = int(self.x_test.shape[0]/batch)
                 while True:
                     try:
                         x_batch, y_batch = sess.run([self.data_layer.x_data, self.data_layer.y_data])
@@ -313,33 +341,33 @@ class Pathnet:
             test_writer.close()
             train_writer.close()
 
-            rows = 6
-            columns = 5
-            images = rows*columns
-            num_correct = 0
-            plt.figure()
-            for i in range(images):
-                y = sess.run(self.output, feed_dict={self.data_layer.x_input:np.expand_dims(x_test[i],axis=0), self.data_layer.y_input:np.expand_dims(y_test[i], axis=0), self.Pmat:path})
-                # print(y[0])
-                # print(y_test[i])
-                # print("")
+            # rows = 6
+            # columns = 5
+            # images = rows*columns
+            # num_correct = 0
+            # plt.figure()
+            # for i in range(images):
+            #     y = sess.run(self.output, feed_dict={self.data_layer.x_input:np.expand_dims(x_test[i],axis=0), self.data_layer.y_input:np.expand_dims(y_test[i], axis=0), self.Pmat:path})
+            #     # print(y[0])
+            #     # print(y_test[i])
+            #     # print("")
 
-                class_names = [ 'T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 
-                                'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
-                cat_nums = np.arange(len(y[0]))
+            #     class_names = [ 'T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 
+            #                     'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+            #     cat_nums = np.arange(len(y[0]))
 
-                imax = plt.subplot(rows, 2*columns, 2*i+1)
-                imax.imshow(x_test[i].reshape(28,28))
+            #     imax = plt.subplot(rows, 2*columns, 2*i+1)
+            #     imax.imshow(self.x_test[i].reshape(28,28))
 
-                predax = plt.subplot(rows, 2*columns, 2*i+2)
-                correct = False
-                if np.argmax(y[0]) == np.argmax(y_test[i]):
-                    correct = True
-                    num_correct += 1
-                predax.bar(cat_nums, y[0], color='g' if correct else 'r')
-                predax.set_xticks(cat_nums)
-                predax.set_xticklabels(class_names, rotation=60)
+            #     predax = plt.subplot(rows, 2*columns, 2*i+2)
+            #     correct = False
+            #     if np.argmax(y[0]) == np.argmax(self.y_test[i]):
+            #         correct = True
+            #         num_correct += 1
+            #     predax.bar(cat_nums, y[0], color='g' if correct else 'r')
+            #     predax.set_xticks(cat_nums)
+            #     predax.set_xticklabels(class_names, rotation=60)
 
-            print(f"Example accuracy: {num_correct/images*100}%")
-            plt.subplots_adjust(hspace=0.4)
-            plt.show()
+            # print(f"Example accuracy: {num_correct/images*100}%")
+            # plt.subplots_adjust(hspace=0.4)
+            # plt.show()
